@@ -57,7 +57,7 @@ program waterdiviner
 
   fname = next_arg()
 
-  call nc_open(fname,ncid,writable=.false.)
+  call nc_open(fname,ncid,writable=.true.)
 
   varname = 'elevation'
   latname = 'lat'
@@ -88,13 +88,28 @@ program waterdiviner
 
   print *,'Num clusters found: ',nclusters
 
+
+  ! 43200  x        21600   = 933120000 points
+  ! minval:       -10977
+  ! maxval:         8685
+  ! Num clusters found:        17717
+  !           1   613311378 = 65.73 %
+  !           2     1143179 = 0.123 %
+  !           3      757185 = 0.081 %
+  !           4       41545 = 0.004 %
+  !           5       26679 = 0.003 %
+
   do i = 1, 5
      print *,i,count(clusters==i)
   end do
 
-  call new(pnm, clusters, origin='bl')
-  pnmname = 'clusters.pgm'
-  call write(pnm, trim(pnmname))
+  call nc_write(fname,"clusterid",clusters,dim1="lon",dim2="lat", ncid=ncid)
+  call nc_write_attr(fname, "clusterid", "standard_name", "ocean_cluster_id")
+  call nc_write_attr(fname, "clusterid", "long_name", "Ocean cluster id, 0=land, 1=ocean, 2+=inland water bodies")
+
+  ! call new(pnm, clusters, origin='bl')
+  ! pnmname = 'clusters.pgm'
+  ! call write(pnm, trim(pnmname))
 
 contains
 
