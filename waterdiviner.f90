@@ -1,9 +1,9 @@
 program waterdiviner
 
-  use pnm_class, only: pnm_object, new, write
-  use iso_varying_string
   use cmdline_arguments, only: get_options, bad_options, have_args, option_exists, &
       has_value, get_value, assignment(=), next_arg, num_args
+  use pnm_class, only: pnm_object, new, write
+  use iso_varying_string
   use string_functions, only: join
   use file_functions, only: exists, freeunit, stderr, stdout, open
   use ncio 
@@ -93,9 +93,9 @@ program waterdiviner
   ! minval:       -10977
   ! maxval:         8685
   ! Num clusters found:        17717
-  !           1   613311378 = 65.73 %
-  !           2     1143179 = 0.123 %
-  !           3      757185 = 0.081 %
+  !           1   613311378 = 65.73 %  -- World Oceans
+  !           2     1143179 = 0.123 %  -- Caspian
+  !           3      757185 = 0.081 %  -- Black Sea
   !           4       41545 = 0.004 %
   !           5       26679 = 0.003 %
 
