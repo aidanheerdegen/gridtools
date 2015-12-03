@@ -12,6 +12,7 @@ program treegrid
   use kdtree2_precision_module
   use kdtree2_module
   use precision
+  use regrid, only: regrid_real_2d
 
   implicit none
   
@@ -21,19 +22,14 @@ program treegrid
   type (varying_string) :: myoptions(1)
 
   real, allocatable, target :: data(:,:)
-  real, pointer :: data1d(:)
 
-  integer, allocatable :: newdata(:,:)
+  real, allocatable :: newdata(:,:)
 
-  real, allocatable :: newgridx(:,:), newgridy(:,:), dst_gridx(:,:), dst_gridy(:,:)
+  real, allocatable :: newgridx(:,:), newgridy(:,:)
+  real, allocatable :: src_grid(:,:,:), dst_grid(:,:,:)
   real, allocatable :: lon(:), lat(:)
 
-  real(kdkind), allocatable :: pos_data(:,:), newdist(:,:)
-  real(kdkind) :: oldlon, newlon
-
   integer :: error, id_data, id_grid, nlat, nlon, nlatnew, nlonnew, ij, nx, ny, i, j
-
-  real(kind=rd_kind),parameter :: DEG2RAD = asin(1.0_rd_kind)/90.0_rd_kind  ! PI/180
 
   logical :: supergrid
   
@@ -76,61 +72,25 @@ program treegrid
 
   latname = 'lat'; lonname = 'lon'
 
-  nlat = nc_size(trim(fname), trim(latname), id_data)
-  nlon = nc_size(trim(fname), trim(lonname), id_data)
+  nlat = nc_size(trim(datafile), trim(latname), id_data)
+  nlon = nc_size(trim(datafile), trim(lonname), id_data)
 
   print *,nlon,' x ',nlat
 
-  allocate(lon(nlon),lat(nlat),data(nlon,nlat))
+  allocate(lon(nlon),lat(nlat),src_grid(2,nlon,nlat),data(nlon,nlat))
 
   call nc_read(trim(fname),trim(lonname),lon,ncid=id_data)
   call nc_read(trim(fname),trim(latname),lat,ncid=id_data)
+
+  src_grid(1,:,:) = spread(lon,2,nlat)
+  src_grid(2,:,:) = reshape(spread(lat,1,nlon),(/nlon,nlat/))
   
   varname = 'elevation'
 
   call nc_read(trim(fname),trim(varname),data,ncid=id_data)
 
-  ! Pointer bounds remapping allows 1d pointer to 2d array
-  data1d(1:nlon*nlat) => data
-
-  print *,"minval lon: ",minval(lon)
-  print *,"maxval lon: ",maxval(lon)
- 
-  ! Make all longitudes run between 0 - 360 degrees
-  where(lon < 0) lon = lon + 360.
-
-  print *,"minval lon: ",minval(lon)
-  print *,"maxval lon: ",maxval(lon)
- 
-  ! Convert to radians
-  lon = lon*DEG2RAD
-  lat = lat*DEG2RAD
-
-  ! Points on surface of sphere radius 1
-  allocate(pos_data(3,nlon*nlat))
-  ! allocate(pos_data(3,100*100))
-  ij = 0
-  do i = 1, nlat
-     ! print *,'y,ij ',i,ij
-     do j = 1,  nlon
-        ij = ij + 1
-        pos_data(1,ij) =  cos(lon(j))*cos(lat(i))
-        pos_data(2,ij) =  sin(lon(j))*cos(lat(i))
-        pos_data(3,ij) =  sin(lat(i))
-        ! if ( (ij > 1700) .and. (ij < 1900)) print *,i,j,lon(j),lat(i),pos_data(:,ij)
-     end do
-  enddo
-
-  ! Create a nearest-neighbour kdtree from data
-  print *,'Creating Tree'
-  ! Create tree
-  tree => kdtree2_create(pos_data,sort=.false.,rearrange=.true.)
-  print *,'Finished Creating Tree'
-
-  ! Read in the new grid
-  
+  ! Read in data to be re-gridded
   gridfile = next_arg()
-
   print *,'Reading in new grid from ',trim(gridfile)
 
   call nc_open(trim(gridfile), id_grid, writable=.false.)
@@ -161,68 +121,19 @@ program treegrid
      ! Supergrid, pull out every second cell
      nx = (nlonnew - 1)/2
      ny = (nlatnew - 1)/2
-     allocate(dst_gridx(nx,ny), dst_gridy(nx,ny))
-     dst_gridx = newgridx(2::2,2::2)
-     dst_gridy = newgridy(2::2,2::2)
+     allocate(dst_grid(2,nx,ny))
+     dst_grid(1,:,:) = newgridx(2::2,2::2)
+     dst_grid(2,:,:) = newgridy(2::2,2::2)
   else
      nx = nlonnew
      ny = nlatnew
-     dst_gridx = newgridx
-     dst_gridy = newgridy
+     dst_grid(1,:,:) = newgridx
+     dst_grid(2,:,:) = newgridy
   end if
-
-  print *,"minval dst_gridx: ",minval(dst_gridx)
-  print *,"maxval dst_gridx: ",maxval(dst_gridx)
- 
-  ! Make sure destination grid is between 0 and 360
-  where (dst_gridx < 0) dst_gridx = dst_gridx + 360.
- 
-  print *,"minval dst_gridx: ",minval(dst_gridx)
-  print *,"maxval dst_gridx: ",maxval(dst_gridx)
- 
-  dst_gridx = dst_gridx * DEG2RAD
-  dst_gridy = dst_gridy * DEG2RAD
-
-  ! Cycle through the points of the new grid, find n nearest neighbours, and
-  ! apply function to these neighbours, and save result at the new grid point
-
-  print *,"Prepare destination grid"
-
-  ! Points on surface of sphere radius 1
-  deallocate(pos_data)
-  allocate(pos_data(3,nx*ny))
-  ! allocate(pos_data(3,100*100))
-  ij = 0
-  do i = 1, ny
-     do j = 1,  nx
-        ij = ij + 1
-        pos_data(1,ij) =  cos(dst_gridx(j,i))*cos(dst_gridx(j,i))
-        pos_data(2,ij) =  sin(dst_gridx(j,i))*cos(dst_gridy(j,i))
-        pos_data(3,ij) =  sin(dst_gridy(j,i))
-        ! if ( (ij > 1700) .and. (ij < 1900)) print *,i,j,dst_gridx(j,i),dst_gridy(j,i)
-     end do
-  enddo
-
-  print *,"Traverse tree for all destination points"
   allocate(newdata(nx,ny))
-  allocate(newdist(nx,ny))
-  ij = 0
-  do i = 1, 200 !ny
-     print *,i
-     do j = 1,  nx
-        ij = ij + 1
-        ! if ( (ij > 1700) .and. (ij < 1900)) print *,i,j,lon(j),lat(i),pos_data(:,ij)
-        call kdtree2_n_nearest(tp=tree,qv=pos_data(:,ij),nn=1,results=results)
-        ! if (results(1)%dis > 1.) print *,i,j,dst_gridx(j,i)/DEG2RAD,dst_gridy(j,i)/DEG2RAD,pos_data(:,ij)
-        newdata(j,i) = data1d(results(1)%idx) 
-        newdist(j,i) = results(1)%dis
-        oldlon = lon(mod(results(1)%idx,nlat))/DEG2RAD
-        newlon = dst_gridx(j,i)/DEG2RAD
-        if (abs(newlon-oldlon) > 1.) print *,i,j,results(1)%idx,mod(results(1)%idx,nlat),oldlon,newlon
-     end do
-     ! print *,newdist(:,i)
-  end do
-  
+
+  call regrid_real_2d(data, src_grid, dst_grid, newdata)
+
   ! Save result
   print *,"Save result"
   outfile = 'regridded.nc'
@@ -238,7 +149,7 @@ contains
     write(stderr,*)
     write(stderr,*) 'Regrid data on new grid using kd-tree'
     write(stderr,*)
-    write(stderr,*) 'Usage: treegrid [--help] datafile newgridfile'
+    write(stderr,*) 'Usage: treegrid [--help] data newgrid'
     write(stderr,*)
     write(stderr,*) '  --help    - print this message'
     write(stderr,*)

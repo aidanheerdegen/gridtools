@@ -95,7 +95,7 @@ contains
           pos_data(1,ij) =  cos(gridout(1,j,i))*cos(gridout(2,j,i))
           pos_data(2,ij) =  sin(gridout(1,j,i))*cos(gridout(2,j,i))
           pos_data(3,ij) =  sin(gridout(2,j,i))
-          print '(I4,5(X,F0.2))',ij,pos_data(:,ij),gridout(:,j,i)
+          ! print '(I4,5(X,F0.2))',ij,pos_data(:,ij),gridout(:,j,i)
        end do
     enddo
 
@@ -106,7 +106,7 @@ contains
           ij = ij + 1
           call kdtree2_n_nearest(tp=tree,qv=pos_data(:,ij),nn=1,results=results)
           dataout(j,i) = data1d(results(1)%idx) 
-          print *,i,j,ij,results(1)%idx
+          ! print *,i,j,ij,results(1)%idx
        end do
     end do
 
