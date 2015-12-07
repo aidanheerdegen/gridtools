@@ -2,7 +2,6 @@ program waterdiviner
 
   use cmdline_arguments, only: get_options, bad_options, have_args, option_exists, &
       has_value, get_value, assignment(=), next_arg, num_args
-  use pnm_class, only: pnm_object, new, write
   use iso_varying_string
   use string_functions, only: join
   use file_functions, only: exists, freeunit, stderr, stdout, open
@@ -12,26 +11,27 @@ program waterdiviner
 
   implicit none
 
-  type (pnm_object) :: pnm
-
-  integer, dimension(:,:), allocatable :: data, clusters
+  integer, dimension(:,:), allocatable :: clusters
 
   integer :: i, error, ncid, nlat, nlon, nclusters
 
-  character(len=2000) :: fname, outname, latname, lonname, varname, pnmname
+  character(len=2000) :: fname, latname, lonname, varname
 
-  logical :: initialised = .FALSE., fixed_name = .FALSE., have_missing = .FALSE.
-
-  type (varying_string) :: myoptions(3)
+  type (varying_string) :: myoptions(4)
 
   integer, allocatable :: bathydat(:,:)
+
+  logical :: maskwater, changesign
+  integer :: maskid
 
   ! These are our accepted command line options (see subroutine usage for
   ! an explanation)
 
   myoptions(1) = 'help'
   myoptions(2) = 'outfile'
-  myoptions(3) = 'missing'
+  myoptions(3) = 'maskid'
+  myoptions(4) = 'changesign'
+
 
   ! This call parses the command line arguments for command line options
   call get_options(myoptions, error)
@@ -53,6 +53,19 @@ program waterdiviner
      write(stderr,*) 'ERROR! Must supply GEBCO bathymetry file as a command-line argument'
      call usage
      STOP
+  end if
+
+  if (option_exists('maskid')) then
+     ! Mask out (make into land) all clusterids > value
+     if (.NOT. has_value('maskid')) then
+        write(stderr,*) 'Option maskid must specify a value!'
+        call usage
+        stop
+     end if
+     maskwater = .TRUE.
+     maskid = get_value('maskid')
+  else
+     maskwater = .FALSE.
   end if
 
   fname = next_arg()
@@ -103,13 +116,20 @@ program waterdiviner
      print *,i,count(clusters==i)
   end do
 
-  call nc_write(fname,"clusterid",clusters,dim1="lon",dim2="lat", ncid=ncid)
-  call nc_write_attr(fname, "clusterid", "standard_name", "ocean_cluster_id")
-  call nc_write_attr(fname, "clusterid", "long_name", "Ocean cluster id, 0=land, 1=ocean, 2+=inland water bodies")
+  if (maskwater) then
+     where (clusters > maskid) clusters = 0
+     where (clusters < 1 ) bathydat = 0
+  end if
+  if (changesign) then
+     where (clusters > 0) bathydat = -1 * bathydat
+  end if
+  if (maskwater .or. changesign) then
+     call nc_write(trim(fname),trim(varname),bathydat,dim1="lon",dim2="lat", ncid=ncid)
+  end if
 
-  ! call new(pnm, clusters, origin='bl')
-  ! pnmname = 'clusters.pgm'
-  ! call write(pnm, trim(pnmname))
+  call nc_write(fname,"clusterid",clusters,dim1="lon",dim2="lat", ncid=ncid)
+  call nc_write_attr(trim(fname), "clusterid", "standard_name", "ocean_cluster_id")
+  call nc_write_attr(trim(fname), "clusterid", "long_name", "Ocean cluster id, 0=land, 1=ocean, 2+=inland water bodies")
 
 contains
 
@@ -120,7 +140,8 @@ contains
     write(stderr,*)
     write(stderr,*) 'Usage: waterdiviner [--help] bathymetryfile'
     write(stderr,*)
-    write(stderr,*) '  --help    - print this message'
+    write(stderr,*) '  --help          - print this message'
+    write(stderr,*) '  --maskid=value  - mask (make into land) all clusters with id greater than value'
     write(stderr,*)
 
   end subroutine usage

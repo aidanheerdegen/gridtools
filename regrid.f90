@@ -22,15 +22,13 @@ contains
 
     real(kind=rd_kind),parameter :: DEG2RAD = asin(1.0_rd_kind)/90.0_rd_kind  ! PI/180
 
-    logical :: supergrid
-  
     type(kdtree2_result) :: results(1)
     type(kdtree2),pointer    :: tree
     
     integer :: nlonin, nlatin, npointsin
     integer :: nlonout, nlatout, npointsout
 
-    real(kdkind), allocatable :: pos_data(:,:), newdist(:,:)
+    real(kdkind), allocatable :: pos_data(:,:)
 
     integer :: i, j, ij
 
@@ -91,11 +89,11 @@ contains
     do i = 1, nlatout
        do j = 1,  nlonout
           ij = ij + 1
-          print '(I4,5(X,F0.2))',ij,pos_data(:,ij),gridin(:,j,i)
+          ! print '(I4,5(1X,F0.2))',ij,pos_data(:,ij),gridin(:,j,i)
           pos_data(1,ij) =  cos(gridout(1,j,i))*cos(gridout(2,j,i))
           pos_data(2,ij) =  sin(gridout(1,j,i))*cos(gridout(2,j,i))
           pos_data(3,ij) =  sin(gridout(2,j,i))
-          ! print '(I4,5(X,F0.2))',ij,pos_data(:,ij),gridout(:,j,i)
+          ! print '(I4,5(1X,F0.2))',ij,pos_data(:,ij),gridout(:,j,i)
        end do
     enddo
 

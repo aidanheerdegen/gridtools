@@ -2,15 +2,13 @@ program treegrid
 
   ! Regrid netcdf data file using kdtree
 
-  use ncio 
+  use ncio, only: ncvar, nc_read, nc_open, nc_create, nc_write_dim, nc_write, nc_get_att, &
+       nc_size, nc_print_attr, nc_v_init
   use cmdline_arguments, only: get_options, bad_options, have_args, option_exists, &
       has_value, get_value, assignment(=), next_arg, num_args
   use iso_varying_string
   use string_functions, only: join
   use file_functions, only: exists, freeunit, stderr, stdout, open
-
-  use kdtree2_precision_module
-  use kdtree2_module
   use precision
   use regrid, only: regrid_real_2d
 
@@ -18,8 +16,6 @@ program treegrid
   
   character(len=2000) :: datafile, gridfile, fname, outfile
   character(len=200) :: latname, lonname, varname
-
-  type (varying_string) :: myoptions(1)
 
   real, allocatable, target :: data(:,:)
 
@@ -29,17 +25,20 @@ program treegrid
   real, allocatable :: src_grid(:,:,:), dst_grid(:,:,:)
   real, allocatable :: lon(:), lat(:)
 
-  integer :: error, id_data, id_grid, nlat, nlon, nlatnew, nlonnew, ij, nx, ny, i, j
+  integer :: error, id_data, id_grid, nlat, nlon, nlatnew, nlonnew, nx, ny
+
+  type(ncvar) :: v, xgridv, ygridv
 
   logical :: supergrid
   
-  type(kdtree2_result) :: results(1)
-  type(kdtree2),pointer    :: tree
+  type (varying_string) :: myoptions(4)
 
   ! These are our accepted command line options (see subroutine usage for
   ! an explanation)
-
   myoptions(1) = 'help'
+  myoptions(2) = 'var'
+  myoptions(3) = 'lon'
+  myoptions(4) = 'lat'
 
   ! This call parses the command line arguments for command line options
   call get_options(myoptions, error)
@@ -63,6 +62,45 @@ program treegrid
      STOP
   end if
 
+  if (option_exists('var')) then
+     ! We have specified variable name
+     if (.NOT. has_value('var')) then
+        write(stderr,*) 'Option var must specify a value!'
+        call usage
+        stop
+     end if
+     varname = ""
+     varname = get_value('var')
+  else
+     varname = "elevation"
+  end if
+
+  if (option_exists('lon')) then
+     ! We have specified variable name for the longitude in dest grid
+     if (.NOT. has_value('lon')) then
+        write(stderr,*) 'Option lon must specify a value!'
+        call usage
+        stop
+     end if
+     lonname = ""
+     lonname = get_value('lon')
+  else
+     lonname = "x"
+  end if
+
+  if (option_exists('lat')) then
+     ! We have specified variable name for the longitude in dest grid
+     if (.NOT. has_value('lat')) then
+        write(stderr,*) 'Option lat must specify a value!'
+        call usage
+        stop
+     end if
+     latname = ""
+     latname = get_value('lat')
+  else
+     latname = "y"
+  end if
+
   ! Read in data to be re-gridded
   datafile = next_arg()
 
@@ -70,44 +108,52 @@ program treegrid
 
   call nc_open(trim(datafile), id_data, writable=.false.)
 
-  latname = 'lat'; lonname = 'lon'
+  ! Initialize the netcdf variable info and load attributes
+  call nc_v_init(v,trim(varname))
+  call nc_get_att(id_data,v,readmeta=.TRUE.)
+  ! call nc_print_attr(v)
 
-  nlat = nc_size(trim(datafile), trim(latname), id_data)
-  nlon = nc_size(trim(datafile), trim(lonname), id_data)
-
-  print *,nlon,' x ',nlat
+  nlon = v%dlen(1)
+  nlat = v%dlen(2)
 
   allocate(lon(nlon),lat(nlat),src_grid(2,nlon,nlat),data(nlon,nlat))
 
-  call nc_read(trim(fname),trim(lonname),lon,ncid=id_data)
-  call nc_read(trim(fname),trim(latname),lat,ncid=id_data)
+  print *,nlon,'x',nlat
 
+  ! Read longitude and latitude variables
+  call nc_read(trim(fname),trim(v%dims(1)),lon,ncid=id_data)
+  call nc_read(trim(fname),trim(v%dims(2)),lat,ncid=id_data)
+
+  ! Need a lat/lon value for each point.
+  ! TODO: Should test for dimensions of lat and lon and support regridding from
+  ! non-rectilinear data
   src_grid(1,:,:) = spread(lon,2,nlat)
   src_grid(2,:,:) = reshape(spread(lat,1,nlon),(/nlon,nlat/))
   
-  varname = 'elevation'
-
   call nc_read(trim(fname),trim(varname),data,ncid=id_data)
 
   ! Read in data to be re-gridded
   gridfile = next_arg()
   print *,'Reading in new grid from ',trim(gridfile)
-
   call nc_open(trim(gridfile), id_grid, writable=.false.)
 
-  latname = 'nyp'
-  lonname = 'nxp'
+  ! Initialize the netcdf longitude variable info and load attributes
+  call nc_v_init(xgridv,trim(lonname))
+  call nc_get_att(id_grid,xgridv,readmeta=.TRUE.)
+  call nc_print_attr(xgridv)
 
-  nlatnew = nc_size(trim(gridfile), trim(latname), id_grid)
-  nlonnew = nc_size(trim(gridfile), trim(lonname), id_grid)
-  
+  ! Initialize the netcdf latitude variable info and load attributes
+  call nc_v_init(ygridv,trim(latname))
+  call nc_get_att(id_grid,ygridv,readmeta=.TRUE.)
+  call nc_print_attr(ygridv)
+
+  nlonnew = xgridv%dlen(1)
+  nlatnew = xgridv%dlen(2)
+
   print *,nlonnew,' x ',nlatnew
 
   allocate(newgridx(nlonnew,nlatnew))
   allocate(newgridy(nlonnew,nlatnew))
-
-  latname = 'y'
-  lonname = 'x'
 
   call nc_read(trim(gridfile),trim(lonname),newgridx,ncid=id_grid)
   call nc_read(trim(gridfile),trim(latname),newgridy,ncid=id_grid)
@@ -119,11 +165,11 @@ program treegrid
   supergrid = .true.
   if (supergrid) then
      ! Supergrid, pull out every second cell
-     nx = (nlonnew - 1)/2
-     ny = (nlatnew - 1)/2
+     nx = (nlonnew - 1)/2 + 1
+     ny = (nlatnew - 1)/2 + 1
      allocate(dst_grid(2,nx,ny))
-     dst_grid(1,:,:) = newgridx(2::2,2::2)
-     dst_grid(2,:,:) = newgridy(2::2,2::2)
+     dst_grid(1,:,:) = newgridx(::2,::2)
+     dst_grid(2,:,:) = newgridy(::2,::2)
   else
      nx = nlonnew
      ny = nlatnew
@@ -138,9 +184,11 @@ program treegrid
   print *,"Save result"
   outfile = 'regridded.nc'
   call nc_create(outfile,overwrite=.TRUE.,netcdf4=.TRUE.)
-  call nc_write_dim(outfile,"x",x=(/(i,i=1,nx)/))
-  call nc_write_dim(outfile,"y",x=(/(i,i=1,ny)/))
-  call nc_write(outfile,"newdata",newdata(:,:),dim1="x",dim2="y")
+  call nc_write_dim(outfile,"lon",x=dst_grid(1,:,1))
+  call nc_write_dim(outfile,"lat",x=dst_grid(2,1,:))
+  call nc_write(outfile,"geolon_uv",dst_grid(1,:,:),dim1="lon",dim2="lat",long_name="uv longitude",units="degrees_E")
+  call nc_write(outfile,"geolat_uv",dst_grid(2,:,:),dim1="lon",dim2="lat",long_name="uv latitude",units="degrees_N")
+  call nc_write(outfile,varname,newdata(:,:),dim1="lon",dim2="lat")
 
 contains
 
