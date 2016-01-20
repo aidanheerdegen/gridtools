@@ -7,8 +7,6 @@ program test_connect
 
   implicit none
 
-  character(len=2000) :: outfile
-
   integer, parameter :: nx = 4, ny = 10
 
   integer :: data(nx,ny)
@@ -22,7 +20,7 @@ program test_connect
 
   do i = 1, ny
      do j = 1, nx
-        grid(1,j,i) = 5 * j
+        grid(1,j,i) = 10 * j
         grid(2,j,i) = 5 * i
         data(j,i) = i
      end do
@@ -55,10 +53,10 @@ program test_connect
      print *,'Error in distance calc 2: ', sum(abs(knowndist-dist),mask=pack(data,.TRUE.)>0)
   end if
 
+  call save('dist0.nc', dist, nx, ny)
+
   offset=(/1,6/)
 
-  ! call make_connect_2d(data>0, grid, dist)
-  ! call path_2d(cshift(cshift(data>0,offset(1),1),offset(2),2), cshift(cshift(grid,offset(1),2),offset(2),3), dist)
   call path_2d(data>0, grid, dist, offset)
 
   knowndist = (/ 0.07783526, 0.07028247, 0.06272967, 0.05517688, &
@@ -76,21 +74,72 @@ program test_connect
      print *,'Error in distance calc 2: ', sum(abs(knowndist-dist),mask=pack(data,.TRUE.)>0)
   end if
 
-  ! dist = dist - minval(dist)
+  print *,minval(dist)
+  print *,maxval(dist)
 
-  ! pnm = int(dist * (65535./maxval(dist)))
+  ! Save result
+  call save('dist1.nc', dist, nx, ny)
 
-  ! call write(pnm,'test_connect_dist.pgm') 
+  call path_2d(data>0, grid, dist, offset, normalise=.true.)
+
+  knowndist = (/ 0.07783526, 0.07028247, 0.06272967, 0.05517688, &
+       3.402823e+38, 3.402823e+38, 3.402823e+38, 0.04756627, &
+       3.402823e+38, 3.402823e+38, 3.402823e+38, 0.03995567, &
+       3.402823e+38, 3.402823e+38, 3.402823e+38, 0.03234507, &
+       0.007610605, 0.01331856, 0.01902651, 0.02473446, &
+       0.0, 0.005707953, 0.01141591, 0.01712386, &
+       0.0076106, 0.01271739, 0.01782419, 0.02293097, &
+       0.0152212, 0.01968729, 0.02415338, 0.02861946, &
+       0.02283181, 0.02663711, 0.03044241, 0.03424772, &
+       0.03044241, 0.03358693, 0.03673145, 0.03987597 /)
+
+  if (sum(abs(knowndist-dist),mask=pack(data,.TRUE.)>0) > tolerance) then
+     print *,'Error in distance calc 2: ', sum(abs(knowndist-dist),mask=pack(data,.TRUE.)>0)
+  end if
 
   print *,minval(dist)
   print *,maxval(dist)
 
   ! Save result
-  print *,"Save result"
-  outfile = 'dist.nc'
-  call nc_create(outfile,overwrite=.TRUE.,netcdf4=.TRUE.)
-  call nc_write_dim(outfile,"i",x=(/(i,i=1,nx)/))
-  call nc_write_dim(outfile,"j",x=(/(i,i=1,ny)/))
-  call nc_write(outfile,"distance",reshape(dist(:),(/nx,ny/)),dim1="i",dim2="j")
+  call save('dist2.nc', dist, nx, ny)
+
+  ! Fill in the island in the middle of the data
+  data(1:3,2:4) = 1.
+
+  call path_2d(data>0, grid, dist, offset)
+
+  knowndist = (/ 0.07783526, 0.07028247, 0.06272967, 0.05517688, &
+       3.402823e+38, 3.402823e+38, 3.402823e+38, 0.04756627, &
+       3.402823e+38, 3.402823e+38, 3.402823e+38, 0.03995567, &
+       3.402823e+38, 3.402823e+38, 3.402823e+38, 0.03234507, &
+       0.007610605, 0.01331856, 0.01902651, 0.02473446, &
+       0.0, 0.005707953, 0.01141591, 0.01712386, &
+       0.0076106, 0.01271739, 0.01782419, 0.02293097, &
+       0.0152212, 0.01968729, 0.02415338, 0.02861946, &
+       0.02283181, 0.02663711, 0.03044241, 0.03424772, &
+       0.03044241, 0.03358693, 0.03673145, 0.03987597 /)
+
+  if (sum(abs(knowndist-dist),mask=pack(data,.TRUE.)>0) > tolerance) then
+     print *,'Error in distance calc 2: ', sum(abs(knowndist-dist),mask=pack(data,.TRUE.)>0)
+  end if
+
+  print *,minval(dist)
+  print *,maxval(dist)
+
+  call save('dist3.nc', dist, nx, ny)
+
+contains
+
+  subroutine save(outfile, dist, nx, ny)
+    character(len=*) :: outfile
+    integer :: nx, ny
+    real :: dist(:)
+
+    ! Save result
+    call nc_create(outfile,overwrite=.TRUE.,netcdf4=.TRUE.)
+    call nc_write_dim(outfile,"i",x=(/(i,i=1,nx)/))
+    call nc_write_dim(outfile,"j",x=(/(i,i=1,ny)/))
+    call nc_write(outfile,"distance",reshape(dist(:),(/nx,ny/)),dim1="i",dim2="j")
+  end subroutine save
 
 end program test_connect

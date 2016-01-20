@@ -10,7 +10,7 @@ module pathfind_functions
 
 contains
 
-  subroutine path_2d(datain, sourcegrid, mind, origin)
+  subroutine path_2d(datain, sourcegrid, mind, origin, normalise)
   
     logical, target, intent(in)   :: datain(:,:)
     real, intent(in)              :: sourcegrid(:,:,:)
@@ -19,9 +19,13 @@ contains
     ! Optionally specify the origin from which to calculate distance
     integer, optional, intent(in) :: origin(2)
 
+    ! Optionally specify normalised distance to be returned
+    logical, optional, intent(in) :: normalise
+
     real :: ohd(size(datain),size(datain))
+    real :: mindtmp(size(datain))
     real :: gridin(size(sourcegrid,1),size(sourcegrid,2),size(sourcegrid,3))
-    logical :: data1d(size(datain))
+    logical :: data1d(size(datain)), normalise_mind
 
     real(kind=rd_kind),parameter :: DEG2RAD = asin(1.0_rd_kind)/90.0_rd_kind  ! PI/180
 
@@ -37,6 +41,12 @@ contains
     real(kdkind), allocatable :: pos_data(:,:)
 
     integer :: i, j, ij
+
+    if (present(normalise)) then
+       normalise_mind = normalise
+    else
+       normalise_mind = .false.
+    end if
 
     nlonin = size(datain,1)
     nlatin = size(datain,2)
@@ -100,6 +110,7 @@ contains
     ohd = real_huge
     do i = 1, npointsin
        ! print *,"i: ",i
+       if (.not. data1d(i)) cycle
        call kdtree2_n_nearest_around_point(tp=tree,idxin=i,correltime=0,nn=nneighbours,results=results)
        do j = 1, nneighbours
           ! Ignore the point itself
@@ -121,6 +132,39 @@ contains
     print *,maxval(mind)
 
     call dijkstra_distance(npointsin, ohd, mind)
+
+    if (normalise_mind) then
+
+       ! Re-run the distance calculations for each node, but this time don't
+       ! exclude masked nodes
+       do i = 1, npointsin
+          call kdtree2_n_nearest_around_point(tp=tree,idxin=i,correltime=0,nn=nneighbours,results=results)
+          do j = 1, nneighbours
+             ! Ignore the point itself
+             if (results(j)%idx == i) then
+                ohd(i,results(j)%idx) = 0.
+             else
+                ohd(i,results(j)%idx) = results(j)%dis
+             end if
+          end do
+       end do
+
+       mindtmp = mind
+       
+       call dijkstra_distance(npointsin, ohd, mind)
+
+       where (mind == real_huge .or. mindtmp == real_huge)
+          mind = 0
+          mindtmp = 0
+       end where
+
+       where (mind > 0. .and. data1d)
+          mind = mindtmp / mind
+       elsewhere
+          mind = -1
+       end where
+
+    end if
 
     print *,minval(mind)
     print *,maxval(mind)
