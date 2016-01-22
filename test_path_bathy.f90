@@ -19,19 +19,18 @@ program test_path_bathy
 
   real, allocatable, target :: data(:,:)
 
-  real, allocatable :: newdata(:,:), dist(:)
+  real, allocatable :: dist(:)
 
   real, allocatable :: src_grid(:,:,:)
-  real, allocatable :: lon(:), lat(:)
 
   type (varying_string) :: myoptions(6)
 
-  integer :: i, j, offset(2)
-  integer :: error, id_data, id_grid, nlat, nlon, nlatnew, nlonnew, nx, ny
+  integer :: i
+  integer :: error, id_data, nlat, nlon
 
-  type(ncvar) :: v, xgridv, ygridv
+  type(ncvar) :: v
 
-  real :: tolerance = 0.01, depth
+  real :: depth
 
   logical :: normalise
 
