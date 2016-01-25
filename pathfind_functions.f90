@@ -10,6 +10,182 @@ module pathfind_functions
 
 contains
 
+  subroutine path_2d_vectors(invectors, mind, mask)
+
+    real(kdkind), intent(in)      :: invectors(:,:)
+    real, intent(out)             :: mind(size(invectors,2))
+    logical, intent(in), optional :: mask(:)
+
+    real :: ohd(size(mind),size(mind))
+    logical :: vectormask(size(mind))
+
+    ! Assume a basic grid layout, so 4 possible neighbours + 1 for
+    ! the point where query is made
+    integer, parameter :: nneighbours = 5
+
+    type(kdtree2_result)  :: results(nneighbours)
+    type(kdtree2),pointer :: tree
+    
+    integer :: npointsin
+
+    integer :: i, j, ij
+
+    if (present(mask)) then
+       vectormask = mask
+    else
+       vectormask = .true.
+    end if
+
+    npointsin = size(mind)
+
+    print *,'Create kd tree'
+
+    ! Create a nearest-neighbour kdtree from data
+    tree => kdtree2_create(invectors,sort=.false.,rearrange=.true.)
+
+    print *,"Traverse tree for all destination points"
+    ij = 0
+
+    ohd = real_huge
+    do i = 1, npointsin
+       ! print *,"i: ",i
+       call kdtree2_n_nearest_around_point(tp=tree,idxin=i,correltime=0,nn=nneighbours,results=results)
+       do j = 1, nneighbours
+          ! Ignore the point itself
+          if (results(j)%idx == i) then
+             ohd(i,results(j)%idx) = 0.
+          else if (vectormask(results(j)%idx)) then
+             ohd(i,results(j)%idx) = results(j)%dis
+          else
+             ohd(i,results(j)%idx) = real_huge
+          end if
+          ! print *,'j:',j,results(j)%idx, results(j)%dis, data1d(results(j)%idx)
+       end do
+       ! print *,i,j,ij,results(1)%idx
+    end do
+
+    print *,'Run dijkstras algorithm'
+
+    print *,minval(mind)
+    print *,maxval(mind)
+
+    call dijkstra_distance(npointsin, ohd, mind)
+
+  end subroutine path_2d_vectors
+
+  subroutine path_2d_distance(datain, sourcegrid, mind, origin, normalise)
+  
+    logical, target, intent(in)   :: datain(:,:)
+    real, intent(in)              :: sourcegrid(:,:,:)
+    real, intent(out)             :: mind(size(datain))
+
+    ! Optionally specify the origin from which to calculate distance
+    integer, optional, intent(in) :: origin(2)
+
+    ! Optionally specify normalised distance to be returned
+    logical, optional, intent(in) :: normalise
+
+    real :: mindtmp(size(datain))
+    real :: gridin(size(sourcegrid,1),size(sourcegrid,2),size(sourcegrid,3))
+    logical :: data1d(size(datain)), normalise_mind
+
+    real(kind=rd_kind),parameter :: DEG2RAD = asin(1.0_rd_kind)/90.0_rd_kind  ! PI/180
+
+    ! Assume a basic grid layout, so 4 possible neighbours + 1 for
+    ! the point where query is made
+    integer, parameter :: nneighbours = 5
+
+    integer :: nlonin, nlatin, npointsin, npointstrue, origin1d
+
+    real(kdkind), allocatable :: pos_data(:,:), pos_data_true(:,:)
+
+    integer :: i, j, ij
+
+    if (present(normalise)) then
+       normalise_mind = normalise
+    else
+       normalise_mind = .false.
+    end if
+
+    nlonin = size(datain,1)
+    nlatin = size(datain,2)
+
+    npointsin = nlonin*nlatin
+    npointstrue = count(datain)
+
+    data1d = reshape(datain,shape(data1d))
+
+    ! Make all longitudes run between 0 - 360 degrees
+    where(sourcegrid < 0)
+       gridin = sourcegrid + 360.
+    elsewhere
+       gridin = sourcegrid
+    end where
+
+    ! Convert to radians
+    gridin = gridin*DEG2RAD
+
+    ! Check for origin, otherwise set to first cell in input data
+    if (present(origin)) then
+       ! Cycle the data and grid to have origin first. Subtract 1 from
+       ! each of the shifts to convert between location and offset
+       gridin = cshift(cshift(gridin,origin(1)-1,2),origin(2)-1,3)
+
+       ! This is a 1-D offset, so only subtract 1 once (make sense?)
+       origin1d = origin(1) + (origin(2)-1)*nlonin - 1
+
+       print *,'origin1d: ',origin1d
+       data1d = cshift(data1d,origin1d)
+    end if
+
+    ! Points on surface of sphere radius 1
+    allocate(pos_data(3,npointsin))
+    ij = 0
+    do i = 1, nlatin
+       do j = 1,  nlonin
+          ij = ij + 1
+          pos_data(1,ij) =  cos(gridin(1,j,i))*cos(gridin(2,j,i))
+          pos_data(2,ij) =  sin(gridin(1,j,i))*cos(gridin(2,j,i))
+          pos_data(3,ij) =  sin(gridin(2,j,i))
+       end do
+    enddo
+
+    allocate(pos_data_true(3,npointstrue))
+
+    ! Make distances relative to the origin
+    forall (i=1:npointsin) mind(i) = sum((pos_data(:,i)-pos_data(:,1))**2,dim=1)
+
+    ! Find all minimum distances without data marked as false in datain
+    call path_2d_vectors(pos_data, mind, data1d)
+    
+    if (normalise_mind) then
+
+       ! Re-run the distance calculations, including masked nodes
+       call path_2d_vectors(pos_data, mindtmp)
+
+       where (mind == real_huge .or. mindtmp == real_huge)
+          mind = 0
+          mindtmp = 0
+       end where
+
+       where (mindtmp > 0. .and. data1d)
+          mind = mind / mindtmp
+       elsewhere
+          mind = -1
+       end where
+
+    end if
+
+    print *,minval(mind)
+    print *,maxval(mind)
+
+    ! Check for origin and shift mind back to original position
+    if (present(origin)) then
+       mind = cshift(mind,-1*origin1d)
+    end if
+
+  end subroutine path_2d_distance
+
   subroutine path_2d(datain, sourcegrid, mind, origin, normalise)
   
     logical, target, intent(in)   :: datain(:,:)

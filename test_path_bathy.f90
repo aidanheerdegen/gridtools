@@ -142,7 +142,8 @@ program test_path_bathy
 
   dist = -1.
 
-  call path_2d(data<depth, src_grid, dist, normalise=normalise)
+  ! call path_2d(data<depth, src_grid, dist, normalise=normalise)
+  call path_2d_distance(data<depth, src_grid, dist, origin=(/137,44/), normalise=normalise)
 
   call save('bathy_dist.nc', dist, nlon, nlat)
 
