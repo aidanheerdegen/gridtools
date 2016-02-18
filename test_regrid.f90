@@ -13,11 +13,11 @@ program test_regrid
 
   allocate(sdata(nlon,nlat),sgrid(2,nlon,nlat),ogrid(2,nlon,nlat),odata(nlon,nlat))
 
-  lat = 0.
+  lat = -80.
   datavalue = 0.
   do i = 1, nlat
-     lon = 0.
-     lat = lat + 50.
+     lon = -120.
+     lat = lat + 20.
      do j = 1, nlon
         lon = lon + 10.
         datavalue = datavalue + 1.
@@ -31,10 +31,10 @@ program test_regrid
 
   do i = 1, nlat
      print *,'nlat=',i
-     print '(10(F6.2,X))',sgrid(1,:,i)
-     print '(10(F6.2,X))',ogrid(1,:,i)
-     print '(10(F6.2,X))',sgrid(2,:,i)
-     print '(10(F6.2,X))',ogrid(2,:,i)
+     print '(10(F7.2,X))',sgrid(1,:,i)
+     print '(10(F7.2,X))',ogrid(1,:,i)
+     print '(10(F7.2,X))',sgrid(2,:,i)
+     print '(10(F7.2,X))',ogrid(2,:,i)
   end do
   call regrid_real_2d(sdata, sgrid, ogrid, odata)
 
@@ -48,10 +48,10 @@ program test_regrid
 
   do i = 1, nlat
      print *,'nlat=',i
-     print '(10(F6.2,X))',sgrid(1,:,i)
-     print '(10(F6.2,X))',ogrid(1,:,i)
-     print '(10(F6.2,X))',sgrid(2,:,i)
-     print '(10(F6.2,X))',ogrid(2,:,i)
+     print '(10(F7.2,X))',sgrid(1,:,i)
+     print '(10(F7.2,X))',ogrid(1,:,i)
+     print '(10(F7.2,X))',sgrid(2,:,i)
+     print '(10(F7.2,X))',ogrid(2,:,i)
   end do
   call regrid_real_2d(sdata, sgrid, ogrid, odata)
 
