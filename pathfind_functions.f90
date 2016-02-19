@@ -7,28 +7,178 @@ module pathfind_functions
 
   integer, parameter :: i4_huge = 2147483647
   real, parameter    :: real_huge = huge(1.0)
+  real, parameter    :: earth_R = 6371000 ! units is metres
+  real(kind=rd_kind),parameter :: DEG2RAD = asin(1.0_rd_kind)/90.0_rd_kind  ! PI/180
+
+  interface make_tree
+     module procedure make_tree_vectors, make_tree_latlon
+  end interface make_tree
 
 contains
 
-  subroutine path_2d_vectors(invectors, mind, mask)
+  function lonlat2vector(lonlat) result(v)
 
-    real(kdkind), intent(in)      :: invectors(:,:)
-    real, intent(out)             :: mind(size(invectors,2))
+    real, intent(in) :: lonlat(2)
+    real :: v(3)
+
+    real :: lonlatrad(2)
+
+    lonlatrad = lonlat * DEG2RAD
+
+    v(1) =  cos(lonlatrad(1))*cos(lonlatrad(2))
+    v(2) =  sin(lonlatrad(1))*cos(lonlatrad(2))
+    v(3) =  sin(lonlatrad(2))
+
+    v = v * earth_R
+    
+  end function lonlat2vector
+       
+  subroutine make_tree_vectors(invectors, tree) 
+
+    real(kdkind), intent(inout)         :: invectors(:,:)
+    type(kdtree2), pointer, intent(out) :: tree
+    
+    ! Create a nearest-neighbour kdtree from data
+    tree => kdtree2_create(invectors,sort=.false.,rearrange=.true.)
+
+  end subroutine make_tree_vectors
+
+  subroutine make_tree_latlon(sourcegrid, tree, vectors) 
+
+    ! Calculate and return the vectors used in the tree. Must do this, as
+    ! the tree only points to the data, so it must persist while the tree
+    ! persists
+
+    real, intent(in)                      :: sourcegrid(:,:,:)
+    type(kdtree2), pointer, intent(inout) :: tree
+    real(kdkind), intent(out)             :: vectors(:,:)
+
+    integer :: i, j, ij, nlonin, nlatin
+    
+    nlonin = size(sourcegrid,2)
+    nlatin = size(sourcegrid,3)
+
+    ! Points on surface of spherical earth
+    ij = 0
+    do i = 1, nlatin
+       do j = 1,  nlonin
+          ij = ij + 1
+          vectors(:,ij) = lonlat2vector(sourcegrid(:,j,i))
+       end do
+    enddo
+
+    ! Create a nearest-neighbour kdtree from data
+    ! call make_tree(pos_data, tree)
+    tree => kdtree2_create(vectors,sort=.false.,rearrange=.true.)
+
+    print *,tree%n
+
+  end subroutine make_tree_latlon
+
+  subroutine path_2d_tree(tree, mind, mask, origin) 
+
+    type(kdtree2), pointer, intent(in) :: tree
+    real, intent(out)             :: mind(:)
     logical, intent(in), optional :: mask(:)
+    real, intent(in), optional    :: origin(2)
 
-    real :: ohd(size(mind),size(mind))
+    real :: ohd(size(mind), size(mind))
     logical :: vectormask(size(mind))
 
     ! Assume a basic grid layout, so 4 possible neighbours + 1 for
     ! the point where query is made
     integer, parameter :: nneighbours = 5
 
-    type(kdtree2_result)  :: results(nneighbours)
+    type(kdtree2_result)  :: results(nneighbours), oresult(1)
+    
+    real(kdkind) :: origv(3)
+
+    integer :: npointsin, origin1d
+
+    integer :: i, j, ij, idx
+
+    if (present(mask)) then
+       vectormask = mask
+    else
+       vectormask = .true.
+    end if
+
+    npointsin = size(mind)
+
+    if (present(origin)) then
+       origv = lonlat2vector(origin)
+       call kdtree2_n_nearest(tree, origv, 1, oresult)
+       origin1d = oresult(1)%idx
+       print *,'origin1d: ',origin1d
+    end if
+ 
+    print *,"Traverse tree for all destination points"
+    ij = 0
+
+    ohd = real_huge
+    do i = 1, npointsin
+
+       ! idx = index1d(i)
+       idx = i
+       call kdtree2_n_nearest_around_point(tp=tree,idxin=idx,correltime=0,nn=nneighbours,results=results)
+       do j = 1, nneighbours
+          if (results(j)%idx == 0) then
+             ! print *,"i: ",i, "idx: ",idx,"resultsidx: ",results(j)%idx
+             cycle
+          end if
+          ! Ignore the point itself
+          if (results(j)%idx == idx) then
+             ohd(i,results(j)%idx) = 0.
+          else if (vectormask(results(j)%idx)) then
+             ohd(i,results(j)%idx) = results(j)%dis
+          else
+             ohd(i,results(j)%idx) = real_huge
+          end if
+          ! print *,'j:',j,results(j)%idx, results(j)%dis, vectormask(results(j)%idx), ohd(i,results(j)%idx)
+       end do
+       ! print *,idx,j,ij,results(1)%idx
+    end do
+
+    if (present(origin)) then
+       ohd = cshift(cshift(ohd, origin1d, dim=1), origin1d, dim=2)
+    end if
+
+    print *,'Run dijkstras algorithm'
+
+    call dijkstra_distance(npointsin, ohd, mind)
+
+    print *,minval(mind)
+    print *,maxval(mind)
+
+    if (present(origin)) then
+       print *,'shift mind back'
+       mind = cshift(mind, -1*origin1d)
+    end if
+
+  end subroutine path_2d_tree
+
+  subroutine path_2d_vectors(invectors, mind, mask, origin) 
+
+    real(kdkind), intent(inout)   :: invectors(:,:)
+    real, intent(out)             :: mind(size(invectors,2))
+    logical, intent(in), optional :: mask(:)
+    real, intent(in), optional    :: origin(2)
+
+    real :: ohd(size(mind), size(mind))
+    logical :: vectormask(size(mind))
+
+    ! Assume a basic grid layout, so 4 possible neighbours + 1 for
+    ! the point where query is made
+    integer, parameter :: nneighbours = 5
+
+    type(kdtree2_result)  :: results(nneighbours), oresult(1)
     type(kdtree2),pointer :: tree
     
-    integer :: npointsin
+    real(kdkind) :: origv(3)
 
-    integer :: i, j, ij
+    integer :: npointsin, origin1d
+
+    integer :: i, j, ij, idx
 
     if (present(mask)) then
        vectormask = mask
@@ -43,33 +193,52 @@ contains
     ! Create a nearest-neighbour kdtree from data
     tree => kdtree2_create(invectors,sort=.false.,rearrange=.true.)
 
+    if (present(origin)) then
+       origv = lonlat2vector(origin)
+       call kdtree2_n_nearest(tree, origv, 1, oresult)
+       origin1d = oresult(1)%idx
+       print *,'origin1d: ',origin1d
+    end if
+ 
     print *,"Traverse tree for all destination points"
     ij = 0
 
     ohd = real_huge
     do i = 1, npointsin
-       ! print *,"i: ",i
-       call kdtree2_n_nearest_around_point(tp=tree,idxin=i,correltime=0,nn=nneighbours,results=results)
+
+       ! idx = index1d(i)
+       idx = i
+       ! print *,"i: ",i, "idx: ",idx
+       call kdtree2_n_nearest_around_point(tp=tree,idxin=idx,correltime=0,nn=nneighbours,results=results)
        do j = 1, nneighbours
           ! Ignore the point itself
-          if (results(j)%idx == i) then
+          if (results(j)%idx == idx) then
              ohd(i,results(j)%idx) = 0.
           else if (vectormask(results(j)%idx)) then
              ohd(i,results(j)%idx) = results(j)%dis
           else
              ohd(i,results(j)%idx) = real_huge
           end if
-          ! print *,'j:',j,results(j)%idx, results(j)%dis, data1d(results(j)%idx)
+          ! print *,'j:',j,results(j)%idx, results(j)%dis, vectormask(results(j)%idx), ohd(i,results(j)%idx)
        end do
-       ! print *,i,j,ij,results(1)%idx
+       ! print *,idx,j,ij,results(1)%idx
     end do
 
+    if (present(origin)) then
+       ohd = cshift(cshift(ohd, origin1d, dim=1), origin1d, dim=2)
+    end if
+
     print *,'Run dijkstras algorithm'
+
+    call dijkstra_distance(npointsin, ohd, mind)
 
     print *,minval(mind)
     print *,maxval(mind)
 
-    call dijkstra_distance(npointsin, ohd, mind)
+    if (present(origin)) then
+       print *,'shift mind back'
+       mind = cshift(mind, -1*origin1d)
+    end if
 
   end subroutine path_2d_vectors
 
@@ -186,14 +355,83 @@ contains
 
   end subroutine path_2d_distance
 
-  subroutine path_2d(datain, sourcegrid, mind, origin, normalise)
+  subroutine path_2d(datamask, sourcegrid, mind, origin, normalise)
+
+    ! Calculate the path from the origin to all other points in sourcegrid.
+    ! Cells where datamask is false are omitted from the distance calculation.
+    ! For the example of calculating paths in the ocean, the masked cells
+    ! correspond to land
+  
+    logical, target, intent(in)   :: datamask(:,:)
+    real, intent(in)              :: sourcegrid(:,:,:)
+    real, intent(out)             :: mind(size(datamask))
+
+    ! Optionally specify the origin from which to calculate distance
+    real, intent(inout) :: origin(2)
+
+    ! Optionally specify normalised distance to be returned
+    logical, optional, intent(in) :: normalise
+
+    logical :: data1d(size(datamask)), normalise_mind
+
+    integer :: npointsin
+
+    type(kdtree2), pointer :: tree
+    real(kdkind), allocatable :: pos_data(:,:)
+
+    real, allocatable :: mindtmp(:)
+
+    if (present(normalise)) then
+       normalise_mind = normalise
+    else
+       normalise_mind = .false.
+    end if
+
+    npointsin = size(datamask)
+
+    data1d = reshape(datamask,shape(data1d))
+
+    allocate(pos_data(3,npointsin))
+    call make_tree(sourcegrid, tree, pos_data)
+
+    ! Find all minimum distances without data marked as false in datamask
+    call path_2d_tree(tree, mind, data1d, origin)
+    
+    if (normalise_mind) then
+
+       allocate(mindtmp(npointsin))
+
+       ! Re-run the distance calculations, including masked nodes
+       ! call path_2d_vectors(pos_data, mindtmp, origin=origin)
+       call path_2d_tree(tree, mindtmp, origin=origin)
+
+       where (mind == real_huge .or. mindtmp == real_huge)
+          mind = 0
+          mindtmp = 0
+       end where
+
+       where (mind > 0. .and. data1d)
+          mind = mindtmp / mind
+       elsewhere
+          mind = -1
+       end where
+
+       deallocate(mindtmp)
+
+    end if
+
+    deallocate(pos_data)
+
+  end subroutine path_2d
+
+  subroutine path_2d_old(datain, sourcegrid, mind, origin, normalise)
   
     logical, target, intent(in)   :: datain(:,:)
     real, intent(in)              :: sourcegrid(:,:,:)
     real, intent(out)             :: mind(size(datain))
 
     ! Optionally specify the origin from which to calculate distance
-    integer, optional, intent(in) :: origin(2)
+    real, intent(inout) :: origin(2)
 
     ! Optionally specify normalised distance to be returned
     logical, optional, intent(in) :: normalise
@@ -209,12 +447,13 @@ contains
     ! the point where query is made
     integer, parameter :: nneighbours = 5
 
-    type(kdtree2_result)  :: results(nneighbours)
+    type(kdtree2_result)  :: results(nneighbours), oresult(1)
     type(kdtree2),pointer :: tree
     
     integer :: nlonin, nlatin, npointsin, origin1d
 
     real(kdkind), allocatable :: pos_data(:,:)
+    real(kdkind) :: origv(3)
 
     integer :: i, j, ij
 
@@ -240,19 +479,7 @@ contains
 
     ! Convert to radians
     gridin = gridin*DEG2RAD
-
-    ! Check for origin, otherwise set to first cell in input data
-    if (present(origin)) then
-       ! Cycle the data and grid to have origin first. Subtract 1 from
-       ! each of the shifts to convert between location and offset
-       gridin = cshift(cshift(gridin,origin(1)-1,2),origin(2)-1,3)
-
-       ! This is a 1-D offset, so only subtract 1 once (make sense?)
-       origin1d = origin(1) + (origin(2)-1)*nlonin - 1
-
-       print *,'origin1d: ',origin1d
-       data1d = cshift(data1d,origin1d)
-    end if
+    origin = origin*DEG2RAD
 
     ! Points on surface of sphere radius 1
     allocate(pos_data(3,npointsin))
@@ -267,7 +494,7 @@ contains
     enddo
 
     ! Make distances relative to the origin
-    forall (i=1:npointsin) mind(i) = sum((pos_data(:,i)-pos_data(:,1))**2,dim=1)
+    ! forall (i=1:npointsin) mind(i) = sum((pos_data(:,i)-pos_data(:,1))**2,dim=1)
     
     ! print *,i,j,'mind = ',mind(ij)
 
@@ -280,6 +507,24 @@ contains
     ! Create a nearest-neighbour kdtree from data
     tree => kdtree2_create(pos_data,sort=.false.,rearrange=.true.)
 
+    origv(1) =  cos(origin(1))*cos(origin(2))
+    origv(2) =  sin(origin(1))*cos(origin(2))
+    origv(3) =  sin(origin(2))
+    
+    call kdtree2_n_nearest(tree, origv, 1, oresult)
+
+    origin1d = oresult(1)%idx
+
+    ! Cycle the data and grid to have origin first. Subtract 1 from
+    ! each of the shifts to convert between location and offset
+    ! gridin = cshift(cshift(gridin,origin(1)-1,2),origin(2)-1,3)
+    
+    ! This is a 1-D offset, so only subtract 1 once (make sense?)
+    ! origin1d = origin(1) + (origin(2)-1)*nlonin - 1
+
+    print *,'origin1d: ',origin1d
+    data1d = cshift(data1d,origin1d)
+ 
     print *,"Traverse tree for all destination points"
     ij = 0
 
@@ -345,12 +590,10 @@ contains
     print *,minval(mind)
     print *,maxval(mind)
 
-    ! Check for origin and shift mind back to original position
-    if (present(origin)) then
-       mind = cshift(mind,-1*origin1d)
-    end if
+    ! Shift mind back to original position
+    mind = cshift(mind,-1*origin1d)
 
-  end subroutine path_2d
+  end subroutine path_2d_old
 
   subroutine dijkstra_distance(nv, ohd, mind)
 
