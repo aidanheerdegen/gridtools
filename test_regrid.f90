@@ -13,11 +13,11 @@ program test_regrid
 
   allocate(sdata(nlon,nlat),sgrid(2,nlon,nlat),ogrid(2,nlon,nlat),odata(nlon,nlat))
 
-  lat = -80.
+  lat = -40.
   datavalue = 0.
   do i = 1, nlat
-     lon = -120.
-     lat = lat + 20.
+     lon = -20.
+     lat = lat + 10.
      do j = 1, nlon
         lon = lon + 10.
         datavalue = datavalue + 1.
@@ -44,7 +44,7 @@ program test_regrid
      print '(10(F0.2,X))',odata(:,i)
   end do
   
-  ogrid = sgrid + 8.
+  ogrid = sgrid + 18.
 
   do i = 1, nlat
      print *,'nlat=',i

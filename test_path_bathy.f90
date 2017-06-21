@@ -30,7 +30,7 @@ program test_path_bathy
 
   type(ncvar) :: v
 
-  real :: depth
+  real :: depth, origin(2)
 
   logical :: normalise
 
@@ -143,7 +143,10 @@ program test_path_bathy
   dist = -1.
 
   ! call path_2d(data<depth, src_grid, dist, normalise=normalise)
-  call path_2d_distance(data<depth, src_grid, dist, origin=(/137,44/), normalise=normalise)
+  ! call path_2d_distance(data<depth, src_grid, dist, origin=(/137,44/), normalise=normalise)
+  origin=(/-235.875,-4.37077/)
+  call path_2d(data<depth, src_grid, dist, origin, normalise=normalise)
+  ! call path_2d(data<depth, src_grid, dist, origin)
 
   call save('bathy_dist.nc', dist, nlon, nlat)
 

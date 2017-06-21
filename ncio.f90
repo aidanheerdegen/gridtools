@@ -1210,7 +1210,7 @@ contains
         cmode = nf90_clobber 
         if (.not. clobber) cmode = nf90_noclobber 
 
-        if (nc4) cmode = nf90_hdf5 
+        ! if (nc4) cmode = nf90_hdf5 
 
         ! Get ncio version for writing
         write(history,"(a,f5.2)") "Dataset generated using ncio v", NCIO_VERSION

@@ -42,15 +42,8 @@ contains
 
     data1d = reshape(datain,shape(data1d))
 
-    ! Make all longitudes run between 0 - 360 degrees
-    where(sourcegrid < 0)
-       gridin = sourcegrid + 360.
-    elsewhere
-       gridin = sourcegrid
-    end where
-
     ! Convert to radians
-    gridin = gridin*DEG2RAD
+    gridin = sourcegrid*DEG2RAD
 
     ! Points on surface of sphere radius 1
     allocate(pos_data(3,npointsin))
@@ -61,6 +54,7 @@ contains
           pos_data(1,ij) =  cos(gridin(1,j,i))*cos(gridin(2,j,i))
           pos_data(2,ij) =  sin(gridin(1,j,i))*cos(gridin(2,j,i))
           pos_data(3,ij) =  sin(gridin(2,j,i))
+          ! print '(2(I4),5(2X,F0.2))',i,j,gridin(1,j,i), gridin(2,j,i), pos_data(:,ij)
        end do
     enddo
 
@@ -70,15 +64,8 @@ contains
     ! Make sure destination grid is between 0 and 360
     where (gridout < 0) gridout = gridout + 360.
 
-    ! Make all longitudes run between 0 - 360 degrees
-    where(destgrid < 0)
-       gridout = destgrid + 360.
-    elsewhere
-       gridout = destgrid
-    end where
-
     ! Convert to radians
-    gridout = gridout*DEG2RAD
+    gridout = destgrid*DEG2RAD
 
     ! Cycle through the points of the new grid, find n nearest neighbours, and
     ! apply function to these neighbours, and save result at the new grid point
